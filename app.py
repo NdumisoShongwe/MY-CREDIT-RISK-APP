@@ -66,6 +66,14 @@ def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_sc
 
     return explanation_text
 
+# -------------------- SAFE NUMERIC HELPER --------------------
+def safe_numeric(value, default=0):
+    """Convert string or mixed type to float safely."""
+    try:
+        return float(value)
+    except:
+        return default
+
 # -------------------- LOAD MODEL & DATA --------------------
 mlp_model = joblib.load("mlp_model.pkl")
 scaler = joblib.load("scaler.pkl")
@@ -132,11 +140,11 @@ else:
 
     st.header("📋 Applicant Data Input Form (Prefilled from Chatbot)")
 
-    # Prefill form fields using proper human-readable names
+    # Prefill numeric fields safely from chatbot
     applicant_data = pd.DataFrame({
-        "income": [st.session_state.chat_data.get("Monthly Income (USD)", 0)],
-        "age": [st.session_state.chat_data.get("Age (Years)", 18)],
-        "loan_amnt": [st.session_state.chat_data.get("Requested Loan Amount (USD)", 0)],
+        "income": [safe_numeric(st.session_state.chat_data.get("Monthly Income (USD)", 0))],
+        "age": [safe_numeric(st.session_state.chat_data.get("Age (Years)", 18))],
+        "loan_amnt": [safe_numeric(st.session_state.chat_data.get("Requested Loan Amount (USD)", 0))],
         "last_pymnt_amnt": [0],
         "total_pymnt": [0],
         "recoveries": [0],
@@ -234,6 +242,8 @@ if st.sidebar.button("Retrain Model"):
     joblib.dump(mlp_model, "mlp_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
     st.success("Model retrained successfully!")
+
+
 
 
 
