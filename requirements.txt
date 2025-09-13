@@ -7,4 +7,6 @@ seaborn
 shap
 lime
 streamlit-authenticator
+plotly>=5.20.0
+
 
