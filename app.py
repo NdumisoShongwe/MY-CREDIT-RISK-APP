@@ -13,11 +13,12 @@ FEATURES = [
     "total_pymnt_inv", "funded_amnt_inv"
 ]
 
-# Human-readable mapping
+# Proper human-readable labels
 NAME_MAP = {
     "income": "Monthly Income (USD)",
     "age": "Age (Years)",
     "loan_amnt": "Requested Loan Amount (USD)",
+    "credit_score": "Credit Score",
     "last_pymnt_amnt": "Last Payment Amount (USD)",
     "total_pymnt": "Total Payments Made (USD)",
     "recoveries": "Recovered Amount (USD)",
@@ -29,49 +30,39 @@ NAME_MAP = {
 
 # -------------------- CREDIT SCORE CALCULATION --------------------
 def compute_credit_score(prob_default):
-    """Convert probability of default into a credit score on a 300–850 scale."""
     score = int(850 - prob_default * 550)
     return max(300, min(850, score))
 
 # -------------------- AI ASSISTANT FUNCTION --------------------
 def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_score):
     explanation_text = ""
-
-    # 1. Prediction summary
     if pred[0] == 1:
-        explanation_text += f"⚠️ The model predicts this applicant is at HIGH RISK of default with probability {prob[0]:.2f}.\n\n"
+        explanation_text += f"⚠️ High risk of default with probability {prob[0]:.2f}\n\n"
     else:
-        explanation_text += f"✅ The model predicts this applicant is at LOW RISK of default with probability {prob[0]:.2f}.\n\n"
+        explanation_text += f"✅ Low risk of default with probability {prob[0]:.2f}\n\n"
 
-    explanation_text += f"💳 **Calculated Credit Score:** {credit_score}\n\n"
+    explanation_text += f"💳 Calculated Credit Score: {credit_score}\n\n"
 
-    # 2. SHAP Insights
-    explanation_text += "📊 **SHAP Insights:**\n"
-    important_features = shap_values.values[0].argsort()[-3:][::-1]  # top 3
+    # SHAP Insights
+    explanation_text += "📊 SHAP Insights:\n"
+    important_features = shap_values.values[0].argsort()[-3:][::-1]
     for i in important_features:
         feature = NAME_MAP.get(applicant_aligned.columns[i], applicant_aligned.columns[i])
         value = applicant_aligned.iloc[0, i]
         shap_val = shap_values.values[0][i]
-        explanation_text += f"- {feature} = {value} contributed {'positively' if shap_val > 0 else 'negatively'} to the risk score.\n"
+        explanation_text += f"- {feature} = {value} contributed {'positively' if shap_val > 0 else 'negatively'} to risk.\n"
 
-    # 3. LIME Insights
-    explanation_text += "\n📌 **LIME Explanation:**\n"
+    # LIME Insights
+    explanation_text += "\n📌 LIME Explanation:\n"
     for feature, weight in lime_exp.as_list(label=1):
         explanation_text += f"- {feature} with weight {weight:.2f}\n"
 
-    # 4. Policy & Loan Advice
-    explanation_text += "\n💡 **Policy Recommendations:**\n"
-    if pred[0] == 0:  # Non-default
-        explanation_text += "- The applicant qualifies for a personal loan.\n"
-        if prob[0] < 0.3:
-            explanation_text += "- Recommended: Higher loan amount with longer repayment period (24–36 months).\n"
-        elif prob[0] < 0.6:
-            explanation_text += "- Recommended: Medium loan amount with repayment period of 12–24 months.\n"
-        else:
-            explanation_text += "- Recommended: Lower loan amount with strict monitoring and shorter repayment period (6–12 months).\n"
+    # Policy & Loan Advice
+    explanation_text += "\n💡 Policy Recommendations:\n"
+    if pred[0] == 0:
+        explanation_text += "- Applicant qualifies for a personal loan.\n"
     else:
-        explanation_text += "- The applicant should be carefully monitored or rejected due to high risk of default.\n"
-        explanation_text += "- Recommend financial literacy training or credit repair program before loan approval.\n"
+        explanation_text += "- High risk applicant: consider rejection or monitoring.\n"
 
     return explanation_text
 
@@ -79,16 +70,15 @@ def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_sc
 mlp_model = joblib.load("mlp_model.pkl")
 scaler = joblib.load("scaler.pkl")
 df = pd.read_csv("credit_risk_dataset.csv")
-feature_names = joblib.load("features.pkl")  # original order of features
+feature_names = joblib.load("features.pkl")
 
-# -------------------- AI CHATBOT INTRO --------------------
-st.title("🤖 AI Loan Assistant")
+st.title("🤖 AI Loan Assistant & Credit Risk Tool")
 
+# -------------------- CHATBOT FLOW --------------------
 if "chat_stage" not in st.session_state:
     st.session_state.chat_stage = 0
     st.session_state.chat_data = {}
 
-# Chatbot flow questions
 questions = [
     ("Full Name", "text", "Please enter the applicant's full name"),
     ("National ID / Passport Number", "text", "Enter ID or passport number"),
@@ -106,8 +96,18 @@ questions = [
     ("Requested Loan Amount (USD)", "number", "Enter requested loan amount")
 ]
 
+# -------------------- CHATBOT SIDEBAR --------------------
+st.sidebar.header("💬 Applicant Chatbot Responses")
+if st.session_state.chat_data:
+    for k, v in st.session_state.chat_data.items():
+        st.sidebar.write(f"**{k}:** {v}")
+else:
+    st.sidebar.write("No responses yet.")
+
+# -------------------- CHATBOT QUESTIONS --------------------
 if st.session_state.chat_stage < len(questions):
     q_label, q_type, q_prompt = questions[st.session_state.chat_stage]
+    st.subheader(f"AI Assistant Question {st.session_state.chat_stage + 1}/{len(questions)}")
     st.write(f"**AI Assistant:** {q_prompt}")
 
     if q_type == "text":
@@ -123,19 +123,16 @@ if st.session_state.chat_stage < len(questions):
             st.session_state.chat_stage += 1
         else:
             st.warning("Please provide an answer before continuing.")
-else:
-    st.success("✅ All initial details collected!")
-    st.write("Here’s a summary of the applicant’s information:")
-    st.table(pd.DataFrame([st.session_state.chat_data]))
-
-    if st.button("Continue to Loan Application Form"):
-        st.session_state.chat_stage = len(questions) + 1
 
 # -------------------- SHOW MAIN FORM AFTER CHATBOT --------------------
-if st.session_state.chat_stage > len(questions):
-    st.header("📋 Applicant Data Input Form")
+else:
+    st.success("✅ All initial details collected!")
+    st.write("Here’s a summary of the applicant’s information collected by the AI Chatbot:")
+    st.table(pd.DataFrame([st.session_state.chat_data]))
 
-    # Use the chatbot-collected data as defaults in the form
+    st.header("📋 Applicant Data Input Form (Prefilled from Chatbot)")
+
+    # Prefill form fields using proper human-readable names
     applicant_data = pd.DataFrame({
         "income": [st.session_state.chat_data.get("Monthly Income (USD)", 0)],
         "age": [st.session_state.chat_data.get("Age (Years)", 18)],
@@ -149,90 +146,77 @@ if st.session_state.chat_stage > len(questions):
         "funded_amnt_inv": [0]
     })
 
-    # -------------------- PREDICT BUTTON --------------------
+    # Form inputs
+    income = st.number_input(NAME_MAP["income"], value=applicant_data.loc[0, "income"], step=100.0)
+    age = st.number_input(NAME_MAP["age"], value=applicant_data.loc[0, "age"], step=1)
+    loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=applicant_data.loc[0, "loan_amnt"], step=100.0)
+    last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0, step=50.0)
+    total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0, step=100.0)
+    recoveries = st.number_input(NAME_MAP["recoveries"], value=0, step=10.0)
+    funded_amnt = st.number_input(NAME_MAP["funded_amnt"], value=0, step=100.0)
+    total_rec_prncp = st.number_input(NAME_MAP["total_rec_prncp"], value=0, step=100.0)
+    total_pymnt_inv = st.number_input(NAME_MAP["total_pymnt_inv"], value=0, step=100.0)
+    funded_amnt_inv = st.number_input(NAME_MAP["funded_amnt_inv"], value=0, step=100.0)
+
+    applicant_data = pd.DataFrame({
+        "income": [income],
+        "age": [age],
+        "loan_amnt": [loan_amnt],
+        "last_pymnt_amnt": [last_pymnt_amnt],
+        "total_pymnt": [total_pymnt],
+        "recoveries": [recoveries],
+        "funded_amnt": [funded_amnt],
+        "total_rec_prncp": [total_rec_prncp],
+        "total_pymnt_inv": [total_pymnt_inv],
+        "funded_amnt_inv": [funded_amnt_inv]
+    })
+
     if st.button("Predict"):
-        if applicant_data is not None:
-            # Align applicant data with training features
-            applicant_aligned = pd.DataFrame(columns=feature_names)
-            applicant_aligned.loc[0] = 0
-            for col in applicant_data.columns:
-                if col in applicant_aligned.columns:
-                    applicant_aligned.loc[0, col] = applicant_data[col].values[0]
+        applicant_aligned = pd.DataFrame(columns=feature_names)
+        applicant_aligned.loc[0] = 0
+        for col in applicant_data.columns:
+            if col in applicant_aligned.columns:
+                applicant_aligned.loc[0, col] = applicant_data[col].values[0]
 
-            # Scale aligned data
-            scaled = scaler.transform(applicant_aligned)
+        scaled = scaler.transform(applicant_aligned)
+        prob = mlp_model.predict_proba(scaled)[:, 1]
+        pred = mlp_model.predict(scaled)
 
-            # Prediction
-            prob = mlp_model.predict_proba(scaled)[:, 1]
-            pred = mlp_model.predict(scaled)
+        credit_score = compute_credit_score(prob[0])
+        st.subheader("Prediction Results")
+        risk = "High Risk" if prob[0] > 0.7 else "Medium Risk" if prob[0] > 0.4 else "Low Risk"
+        results_df = pd.DataFrame({
+            "Prediction": ["Default" if pred[0] == 1 else "Non-Default"],
+            "Probability of Default": [prob[0]],
+            "Risk Category": [risk],
+            "Credit Score": [credit_score],
+            **{NAME_MAP[k]: v for k, v in applicant_data.iloc[0].to_dict().items()}
+        }, index=[0])
+        st.write(results_df)
 
-            # Results
-            results = []
-            for i in range(len(prob)):
-                credit_score = compute_credit_score(prob[i])
-                if prob[i] > 0.7:
-                    risk = "High Risk"
-                elif prob[i] > 0.4:
-                    risk = "Medium Risk"
-                else:
-                    risk = "Low Risk"
+        # SHAP Explanation
+        st.subheader("SHAP Explanation")
+        explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
+        shap_values = explainer(scaled)
+        fig, ax = plt.subplots()
+        shap.summary_plot(shap_values, applicant_aligned, feature_names=[NAME_MAP.get(f, f) for f in feature_names], plot_type="bar", show=False)
+        st.pyplot(fig)
 
-                # Safely map applicant features to human-readable labels
-                applicant_readable = {}
-                for k in FEATURES:
-                    if k in applicant_aligned.columns:
-                        applicant_readable[NAME_MAP.get(k, k)] = applicant_aligned.loc[0, k]
+        # LIME Explanation
+        st.subheader("LIME Explanation")
+        lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+            training_data=scaler.transform(df.drop("default_ind", axis=1).values),
+            feature_names=[NAME_MAP.get(f, f) for f in df.drop("default_ind", axis=1).columns.tolist()],
+            class_names=["Non-Default", "Default"],
+            mode="classification"
+        )
+        explanation = lime_explainer.explain_instance(data_row=scaled[0], predict_fn=mlp_model.predict_proba, num_features=4)
+        fig = explanation.as_pyplot_figure(label=1)
+        st.pyplot(fig)
 
-                results.append({
-                    "Prediction": "Default" if pred[i] == 1 else "Non-Default",
-                    "Probability of Default": prob[i],
-                    "Risk Category": risk,
-                    "Calculated Credit Score": credit_score,
-                    **applicant_readable
-                })
-
-            results_df = pd.DataFrame(results)
-            st.subheader("Prediction Results")
-            st.write(results_df)
-
-            # ✅ SHAP Explanation
-            st.subheader("SHAP Explanation")
-            explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
-            shap_values = explainer(scaled)
-            fig, ax = plt.subplots()
-            shap.summary_plot(
-                shap_values, applicant_aligned,
-                feature_names=[NAME_MAP.get(f, f) for f in feature_names],
-                plot_type="bar", show=False
-            )
-            st.pyplot(fig)
-
-            # ✅ LIME Explanation
-            st.subheader("LIME Explanation")
-            lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-                training_data=scaler.transform(df.drop("default_ind", axis=1).values),
-                feature_names=[NAME_MAP.get(f, f) for f in df.drop("default_ind", axis=1).columns.tolist()],
-                class_names=["Non-Default", "Default"],
-                mode="classification"
-            )
-            explanation = lime_explainer.explain_instance(
-                data_row=scaled[0],
-                predict_fn=mlp_model.predict_proba,
-                num_features=4
-            )
-            fig = explanation.as_pyplot_figure(label=1)
-            st.pyplot(fig)
-
-            # ✅ AI Assistant Advice
-            st.subheader("🤖 AI Assistant Advice")
-            assistant_text = ai_assistant(
-                pred, prob, shap_values, explanation,
-                applicant_aligned, results_df["Calculated Credit Score"].iloc[0]
-            )
-            st.write(assistant_text)
-
-        else:
-            st.warning("Please provide applicant data (manual entry or CSV).")
+        # AI Assistant Advice
+        st.subheader("🤖 AI Assistant Advice")
+        st.write(ai_assistant(pred, prob, shap_values, explanation, applicant_aligned, credit_score))
 
 # -------------------- RETRAIN OPTION --------------------
 if st.sidebar.button("Retrain Model"):
@@ -249,8 +233,9 @@ if st.sidebar.button("Retrain Model"):
 
     joblib.dump(mlp_model, "mlp_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
+    st.success("Model retrained successfully!")
 
-    st.success("Model retrained successfully with updated dataset!")
+
 
 
 
