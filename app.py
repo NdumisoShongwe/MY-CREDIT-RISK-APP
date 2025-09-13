@@ -4,7 +4,7 @@ import numpy as np
 import joblib
 import shap
 import lime.lime_tabular
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import plotly.express as px
 
 # -------------------- HELPER FUNCTIONS --------------------
@@ -159,7 +159,6 @@ else:
 
     # -------------------- PREDICTION --------------------
     if st.button("Predict"):
-        # Align with training features
         applicant_aligned = pd.DataFrame(columns=feature_names)
         applicant_aligned.loc[0] = 0
         for col in applicant_data.columns:
@@ -171,39 +170,37 @@ else:
         pred = mlp_model.predict(scaled)
         credit_score_val = compute_credit_score(prob[0])
 
-        # Risk category
-        risk = "High Risk" if prob[0]>0.7 else "Medium Risk" if prob[0]>0.4 else "Low Risk"
-        results_df = pd.DataFrame({
-            "Prediction":["Default" if pred[0]==1 else "Non-Default"],
-            "Probability of Default":[prob[0]],
-            "Risk Category":[risk],
-            "Credit Score":[credit_score_val],
-            **{NAME_MAP[k]: applicant_data.iloc[0][k] for k in applicant_data.columns}
-        }, index=[0])
-
-        st.subheader("Prediction Results")
-        st.write(results_df)
+        st.subheader("Prediction Result")
+        st.write({
+            "Prediction":"Default" if pred[0]==1 else "Non-Default",
+            "Probability of Default":prob[0],
+            "Calculated Credit Score":credit_score_val
+        })
 
         # -------------------- SHAP INTERACTIVE --------------------
         st.subheader("SHAP Interactive Dashboard")
-        explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
+        explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind",axis=1)))
         shap_values = explainer(scaled)
-        st.pyplot(shap.plots.force(shap_values[0], matplotlib=True))
+        fig = shap.plots.bar(shap_values, max_display=10, show=False)
+        st.pyplot(fig)
 
         # -------------------- LIME INTERACTIVE --------------------
         st.subheader("LIME Explanation")
         lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-            training_data=scaler.transform(df.drop("default_ind", axis=1).values),
-            feature_names=[NAME_MAP.get(f,f) for f in df.drop("default_ind", axis=1).columns.tolist()],
+            training_data=scaler.transform(df.drop("default_ind",axis=1).values),
+            feature_names=[NAME_MAP.get(f,f) for f in df.drop("default_ind",axis=1).columns.tolist()],
             class_names=["Non-Default","Default"],
             mode="classification"
         )
         explanation = lime_explainer.explain_instance(scaled[0], mlp_model.predict_proba, num_features=5)
-        st.pyplot(explanation.as_pyplot_figure(label=1))
+        fig = explanation.as_pyplot_figure(label=1)
+        st.pyplot(fig)
 
         # -------------------- AI ASSISTANT --------------------
         st.subheader("🤖 AI Assistant Advice")
         st.write(ai_assistant(pred, prob, shap_values, explanation, applicant_aligned, credit_score_val))
+
+
 
 
 
