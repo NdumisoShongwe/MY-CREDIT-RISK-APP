@@ -6,13 +6,49 @@ import shap
 import lime.lime_tabular
 import matplotlib.pyplot as plt
 
-# -------------------- HELPER FUNCTION --------------------
+# -------------------- HELPER FUNCTIONS --------------------
 def safe_numeric(val, default=0.0):
-    """Safely convert any value to float, fallback to default."""
+    """Convert a value to float, fallback to default if conversion fails."""
     try:
         return float(val)
-    except (ValueError, TypeError):
+    except (TypeError, ValueError):
         return default
+
+def compute_credit_score(prob_default):
+    """Convert probability of default into a credit score on a 300–850 scale."""
+    score = int(850 - prob_default * 550)
+    return max(300, min(850, score))
+
+def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_score):
+    explanation_text = ""
+    if pred[0] == 1:
+        explanation_text += f"⚠️ High risk of default with probability {prob[0]:.2f}\n\n"
+    else:
+        explanation_text += f"✅ Low risk of default with probability {prob[0]:.2f}\n\n"
+
+    explanation_text += f"💳 Calculated Credit Score: {credit_score}\n\n"
+
+    # SHAP insights
+    explanation_text += "📊 SHAP Insights:\n"
+    top_features = shap_values.values[0].argsort()[-3:][::-1]
+    for i in top_features:
+        feature = NAME_MAP.get(applicant_aligned.columns[i], applicant_aligned.columns[i])
+        value = applicant_aligned.iloc[0, i]
+        shap_val = shap_values.values[0][i]
+        explanation_text += f"- {feature} = {value} contributed {'positively' if shap_val > 0 else 'negatively'} to risk.\n"
+
+    # LIME insights
+    explanation_text += "\n📌 LIME Explanation:\n"
+    for feature, weight in lime_exp.as_list(label=1):
+        explanation_text += f"- {feature} with weight {weight:.2f}\n"
+
+    # Policy & loan advice
+    explanation_text += "\n💡 Policy Recommendations:\n"
+    if pred[0] == 0:
+        explanation_text += "- Applicant qualifies for a personal loan.\n"
+    else:
+        explanation_text += "- High-risk applicant: consider rejection or monitoring.\n"
+    return explanation_text
 
 # -------------------- FEATURE DEFINITIONS --------------------
 FEATURES = [
@@ -35,49 +71,11 @@ NAME_MAP = {
     "funded_amnt_inv": "Funded Amount by Investors (USD)"
 }
 
-# -------------------- CREDIT SCORE CALCULATION --------------------
-def compute_credit_score(prob_default):
-    score = int(850 - prob_default * 550)
-    return max(300, min(850, score))
-
-# -------------------- AI ASSISTANT FUNCTION --------------------
-def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_score):
-    explanation_text = ""
-    if pred[0] == 1:
-        explanation_text += f"⚠️ High risk of default with probability {prob[0]:.2f}\n\n"
-    else:
-        explanation_text += f"✅ Low risk of default with probability {prob[0]:.2f}\n\n"
-
-    explanation_text += f"💳 Calculated Credit Score: {credit_score}\n\n"
-
-    # SHAP Insights
-    explanation_text += "📊 SHAP Insights:\n"
-    important_features = shap_values.values[0].argsort()[-3:][::-1]
-    for i in important_features:
-        feature = NAME_MAP.get(applicant_aligned.columns[i], applicant_aligned.columns[i])
-        value = applicant_aligned.iloc[0, i]
-        shap_val = shap_values.values[0][i]
-        explanation_text += f"- {feature} = {value} contributed {'positively' if shap_val > 0 else 'negatively'} to risk.\n"
-
-    # LIME Insights
-    explanation_text += "\n📌 LIME Explanation:\n"
-    for feature, weight in lime_exp.as_list(label=1):
-        explanation_text += f"- {feature} with weight {weight:.2f}\n"
-
-    # Policy & Loan Advice
-    explanation_text += "\n💡 Policy Recommendations:\n"
-    if pred[0] == 0:
-        explanation_text += "- Applicant qualifies for a personal loan.\n"
-    else:
-        explanation_text += "- High risk applicant: consider rejection or monitoring.\n"
-
-    return explanation_text
-
 # -------------------- LOAD MODEL & DATA --------------------
 mlp_model = joblib.load("mlp_model.pkl")
 scaler = joblib.load("scaler.pkl")
 df = pd.read_csv("credit_risk_dataset.csv")
-feature_names = joblib.load("features.pkl")
+feature_names = joblib.load("features.pkl")  # original order of features
 
 st.title("🤖 AI Loan Assistant & Credit Risk Tool")
 
@@ -139,22 +137,36 @@ else:
 
     st.header("📋 Applicant Data Input Form (Prefilled from Chatbot)")
 
-    # -------------------- PREFILL FORM WITH SAFE NUMERIC --------------------
-    income_val = safe_numeric(st.session_state.chat_data.get("Monthly Income (USD)"), 0.0)
-    age_val = safe_numeric(st.session_state.chat_data.get("Age (Years)"), 18)
-    loan_amnt_val = safe_numeric(st.session_state.chat_data.get("Requested Loan Amount (USD)"), 0.0)
+    # -------------------- SAFE NUMERIC PREFILL --------------------
+    def get_safe_float(key, default=0.0):
+        val = st.session_state.chat_data.get(key)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
 
+    income_val = get_safe_float("Monthly Income (USD)", 0.0)
+    age_val = get_safe_float("Age (Years)", 18)
+    loan_amnt_val = get_safe_float("Requested Loan Amount (USD)", 0.0)
+    last_pymnt_amnt_val = get_safe_float("Last Payment Amount (USD)", 0.0)
+    total_pymnt_val = get_safe_float("Total Payments Made (USD)", 0.0)
+    recoveries_val = get_safe_float("Recovered Amount (USD)", 0.0)
+    funded_amnt_val = get_safe_float("Funded Loan Amount (USD)", 0.0)
+    total_rec_prncp_val = get_safe_float("Total Principal Repaid (USD)", 0.0)
+    total_pymnt_inv_val = get_safe_float("Total Payments to Investors (USD)", 0.0)
+    funded_amnt_inv_val = get_safe_float("Funded Amount by Investors (USD)", 0.0)
+
+    # -------------------- DISPLAY NUMBER INPUTS --------------------
     income = st.number_input(NAME_MAP["income"], value=income_val, step=100.0)
     age = st.number_input(NAME_MAP["age"], value=age_val, step=1)
     loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=loan_amnt_val, step=100.0)
-
-    last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0.0, step=50.0)
-    total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0.0, step=100.0)
-    recoveries = st.number_input(NAME_MAP["recoveries"], value=0.0, step=10.0)
-    funded_amnt = st.number_input(NAME_MAP["funded_amnt"], value=0.0, step=100.0)
-    total_rec_prncp = st.number_input(NAME_MAP["total_rec_prncp"], value=0.0, step=100.0)
-    total_pymnt_inv = st.number_input(NAME_MAP["total_pymnt_inv"], value=0.0, step=100.0)
-    funded_amnt_inv = st.number_input(NAME_MAP["funded_amnt_inv"], value=0.0, step=100.0)
+    last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=last_pymnt_amnt_val, step=50.0)
+    total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=total_pymnt_val, step=100.0)
+    recoveries = st.number_input(NAME_MAP["recoveries"], value=recoveries_val, step=10.0)
+    funded_amnt = st.number_input(NAME_MAP["funded_amnt"], value=funded_amnt_val, step=100.0)
+    total_rec_prncp = st.number_input(NAME_MAP["total_rec_prncp"], value=total_rec_prncp_val, step=100.0)
+    total_pymnt_inv = st.number_input(NAME_MAP["total_pymnt_inv"], value=total_pymnt_inv_val, step=100.0)
+    funded_amnt_inv = st.number_input(NAME_MAP["funded_amnt_inv"], value=funded_amnt_inv_val, step=100.0)
 
     applicant_data = pd.DataFrame({
         "income": [income],
@@ -182,7 +194,6 @@ else:
         pred = mlp_model.predict(scaled)
         credit_score = compute_credit_score(prob[0])
 
-        # Results table
         risk = "High Risk" if prob[0] > 0.7 else "Medium Risk" if prob[0] > 0.4 else "Low Risk"
         results_df = pd.DataFrame({
             "Prediction": ["Default" if pred[0] == 1 else "Non-Default"],
@@ -191,10 +202,11 @@ else:
             "Credit Score": [credit_score],
             **{NAME_MAP[k]: v for k, v in applicant_data.iloc[0].to_dict().items()}
         }, index=[0])
+
         st.subheader("Prediction Results")
         st.write(results_df)
 
-        # SHAP
+        # SHAP Explanation
         st.subheader("SHAP Explanation")
         explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
         shap_values = explainer(scaled)
@@ -202,7 +214,7 @@ else:
         shap.summary_plot(shap_values, applicant_aligned, feature_names=[NAME_MAP.get(f, f) for f in feature_names], plot_type="bar", show=False)
         st.pyplot(fig)
 
-        # LIME
+        # LIME Explanation
         st.subheader("LIME Explanation")
         lime_explainer = lime.lime_tabular.LimeTabularExplainer(
             training_data=scaler.transform(df.drop("default_ind", axis=1).values),
@@ -221,19 +233,17 @@ else:
 # -------------------- RETRAIN OPTION --------------------
 if st.sidebar.button("Retrain Model"):
     from sklearn.neural_network import MLPClassifier
-
     X = df.drop("default_ind", axis=1)
     y = df["default_ind"]
-
     scaler.fit(X)
     X_scaled = scaler.transform(X)
-
     mlp_model = MLPClassifier(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42)
     mlp_model.fit(X_scaled, y)
-
     joblib.dump(mlp_model, "mlp_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
-    st.success("Model retrained successfully!")
+    st.success("Model retrained successfully with updated dataset!")
+
+
 
 
 
