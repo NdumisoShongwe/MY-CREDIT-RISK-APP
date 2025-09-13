@@ -1,0 +1,10 @@
+streamlit
+scikit-learn
+joblib
+pandas
+matplotlib
+seaborn
+shap
+lime
+streamlit-authenticator
+
