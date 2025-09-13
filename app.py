@@ -4,8 +4,7 @@ import numpy as np
 import joblib
 import shap
 import lime.lime_tabular
-import plotly.graph_objects as go
-import plotly.express as px
+import matplotlib.pyplot as plt
 
 # -------------------- HELPER FUNCTIONS --------------------
 def safe_float(val, default=0.0):
@@ -136,10 +135,8 @@ else:
         return safe_float(st.session_state.chat_data.get(key), default)
 
     # Applicant numeric inputs
-    income = st.number_input(NAME_MAP["income"], value=prefill("Monthly Income (USD)",0.0), step=100.0,
-                             help="Enter the applicant's monthly income in USD")
-    age = st.number_input(NAME_MAP["age"], value=prefill("Age (Years)",18), step=1.0,
-                          help="Enter applicant age in years")
+    income = st.number_input(NAME_MAP["income"], value=prefill("Monthly Income (USD)",0.0), step=100.0)
+    age = st.number_input(NAME_MAP["age"], value=prefill("Age (Years)",18), step=1.0)
     loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=prefill("Requested Loan Amount (USD)",0.0), step=100.0)
     last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0.0, step=50.0)
     total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0.0, step=100.0)
@@ -157,7 +154,7 @@ else:
         "funded_amnt_inv":[funded_amnt_inv]
     })
 
-    # -------------------- PREDICTION --------------------
+    # -------------------- PREDICTION & EXPLANATIONS --------------------
     if st.button("Predict"):
         applicant_aligned = pd.DataFrame(columns=feature_names)
         applicant_aligned.loc[0] = 0
@@ -177,14 +174,16 @@ else:
             "Calculated Credit Score":credit_score_val
         })
 
-        # -------------------- SHAP INTERACTIVE --------------------
-        st.subheader("SHAP Interactive Dashboard")
+        # -------------------- SHAP STATIC --------------------
+        st.subheader("SHAP Explanation")
         explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind",axis=1)))
         shap_values = explainer(scaled)
-        fig = shap.plots.bar(shap_values, max_display=10, show=False)
+        fig, ax = plt.subplots(figsize=(8,4))
+        shap.summary_plot(shap_values, applicant_aligned, feature_names=[NAME_MAP.get(f,f) for f in feature_names],
+                          plot_type="bar", show=False)
         st.pyplot(fig)
 
-        # -------------------- LIME INTERACTIVE --------------------
+        # -------------------- LIME STATIC --------------------
         st.subheader("LIME Explanation")
         lime_explainer = lime.lime_tabular.LimeTabularExplainer(
             training_data=scaler.transform(df.drop("default_ind",axis=1).values),
@@ -199,6 +198,8 @@ else:
         # -------------------- AI ASSISTANT --------------------
         st.subheader("🤖 AI Assistant Advice")
         st.write(ai_assistant(pred, prob, shap_values, explanation, applicant_aligned, credit_score_val))
+
+
 
 
 
