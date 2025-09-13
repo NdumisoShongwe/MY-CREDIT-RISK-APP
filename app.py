@@ -13,7 +13,6 @@ FEATURES = [
     "total_pymnt_inv", "funded_amnt_inv"
 ]
 
-# Proper human-readable labels
 NAME_MAP = {
     "income": "Monthly Income (USD)",
     "age": "Age (Years)",
@@ -66,14 +65,6 @@ def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_sc
 
     return explanation_text
 
-# -------------------- SAFE NUMERIC HELPER --------------------
-def safe_numeric(value, default=0):
-    """Convert string or mixed type to float safely."""
-    try:
-        return float(value)
-    except:
-        return default
-
 # -------------------- LOAD MODEL & DATA --------------------
 mlp_model = joblib.load("mlp_model.pkl")
 scaler = joblib.load("scaler.pkl")
@@ -82,7 +73,7 @@ feature_names = joblib.load("features.pkl")
 
 st.title("🤖 AI Loan Assistant & Credit Risk Tool")
 
-# -------------------- CHATBOT FLOW --------------------
+# -------------------- CHATBOT --------------------
 if "chat_stage" not in st.session_state:
     st.session_state.chat_stage = 0
     st.session_state.chat_data = {}
@@ -112,7 +103,7 @@ if st.session_state.chat_data:
 else:
     st.sidebar.write("No responses yet.")
 
-# -------------------- CHATBOT QUESTIONS --------------------
+# -------------------- CHATBOT FLOW --------------------
 if st.session_state.chat_stage < len(questions):
     q_label, q_type, q_prompt = questions[st.session_state.chat_stage]
     st.subheader(f"AI Assistant Question {st.session_state.chat_stage + 1}/{len(questions)}")
@@ -132,39 +123,31 @@ if st.session_state.chat_stage < len(questions):
         else:
             st.warning("Please provide an answer before continuing.")
 
-# -------------------- SHOW MAIN FORM AFTER CHATBOT --------------------
+# -------------------- MAIN FORM AFTER CHATBOT --------------------
 else:
     st.success("✅ All initial details collected!")
-    st.write("Here’s a summary of the applicant’s information collected by the AI Chatbot:")
+    st.write("Summary of applicant's info collected by AI Chatbot:")
     st.table(pd.DataFrame([st.session_state.chat_data]))
 
     st.header("📋 Applicant Data Input Form (Prefilled from Chatbot)")
 
-    # Prefill numeric fields safely from chatbot
-    applicant_data = pd.DataFrame({
-        "income": [safe_numeric(st.session_state.chat_data.get("Monthly Income (USD)", 0))],
-        "age": [safe_numeric(st.session_state.chat_data.get("Age (Years)", 18))],
-        "loan_amnt": [safe_numeric(st.session_state.chat_data.get("Requested Loan Amount (USD)", 0))],
-        "last_pymnt_amnt": [0],
-        "total_pymnt": [0],
-        "recoveries": [0],
-        "funded_amnt": [0],
-        "total_rec_prncp": [0],
-        "total_pymnt_inv": [0],
-        "funded_amnt_inv": [0]
-    })
+    # Explicit float conversion to avoid StreamlitMixedNumericTypesError
+    income_val = float(st.session_state.chat_data.get("Monthly Income (USD)", 0))
+    age_val = float(st.session_state.chat_data.get("Age (Years)", 18))
+    loan_amnt_val = float(st.session_state.chat_data.get("Requested Loan Amount (USD)", 0))
 
-    # Form inputs
-    income = st.number_input(NAME_MAP["income"], value=applicant_data.loc[0, "income"], step=100.0)
-    age = st.number_input(NAME_MAP["age"], value=applicant_data.loc[0, "age"], step=1)
-    loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=applicant_data.loc[0, "loan_amnt"], step=100.0)
-    last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0, step=50.0)
-    total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0, step=100.0)
-    recoveries = st.number_input(NAME_MAP["recoveries"], value=0, step=10.0)
-    funded_amnt = st.number_input(NAME_MAP["funded_amnt"], value=0, step=100.0)
-    total_rec_prncp = st.number_input(NAME_MAP["total_rec_prncp"], value=0, step=100.0)
-    total_pymnt_inv = st.number_input(NAME_MAP["total_pymnt_inv"], value=0, step=100.0)
-    funded_amnt_inv = st.number_input(NAME_MAP["funded_amnt_inv"], value=0, step=100.0)
+    income = st.number_input(NAME_MAP["income"], value=income_val, step=100.0)
+    age = st.number_input(NAME_MAP["age"], value=age_val, step=1)
+    loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=loan_amnt_val, step=100.0)
+
+    # Remaining fields default to 0
+    last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0.0, step=50.0)
+    total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0.0, step=100.0)
+    recoveries = st.number_input(NAME_MAP["recoveries"], value=0.0, step=10.0)
+    funded_amnt = st.number_input(NAME_MAP["funded_amnt"], value=0.0, step=100.0)
+    total_rec_prncp = st.number_input(NAME_MAP["total_rec_prncp"], value=0.0, step=100.0)
+    total_pymnt_inv = st.number_input(NAME_MAP["total_pymnt_inv"], value=0.0, step=100.0)
+    funded_amnt_inv = st.number_input(NAME_MAP["funded_amnt_inv"], value=0.0, step=100.0)
 
     applicant_data = pd.DataFrame({
         "income": [income],
@@ -189,9 +172,9 @@ else:
         scaled = scaler.transform(applicant_aligned)
         prob = mlp_model.predict_proba(scaled)[:, 1]
         pred = mlp_model.predict(scaled)
-
         credit_score = compute_credit_score(prob[0])
-        st.subheader("Prediction Results")
+
+        # Results table
         risk = "High Risk" if prob[0] > 0.7 else "Medium Risk" if prob[0] > 0.4 else "Low Risk"
         results_df = pd.DataFrame({
             "Prediction": ["Default" if pred[0] == 1 else "Non-Default"],
@@ -200,9 +183,10 @@ else:
             "Credit Score": [credit_score],
             **{NAME_MAP[k]: v for k, v in applicant_data.iloc[0].to_dict().items()}
         }, index=[0])
+        st.subheader("Prediction Results")
         st.write(results_df)
 
-        # SHAP Explanation
+        # SHAP
         st.subheader("SHAP Explanation")
         explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
         shap_values = explainer(scaled)
@@ -210,7 +194,7 @@ else:
         shap.summary_plot(shap_values, applicant_aligned, feature_names=[NAME_MAP.get(f, f) for f in feature_names], plot_type="bar", show=False)
         st.pyplot(fig)
 
-        # LIME Explanation
+        # LIME
         st.subheader("LIME Explanation")
         lime_explainer = lime.lime_tabular.LimeTabularExplainer(
             training_data=scaler.transform(df.drop("default_ind", axis=1).values),
@@ -242,6 +226,8 @@ if st.sidebar.button("Retrain Model"):
     joblib.dump(mlp_model, "mlp_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
     st.success("Model retrained successfully!")
+
+
 
 
 
