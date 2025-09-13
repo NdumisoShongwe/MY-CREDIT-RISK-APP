@@ -81,130 +81,158 @@ scaler = joblib.load("scaler.pkl")
 df = pd.read_csv("credit_risk_dataset.csv")
 feature_names = joblib.load("features.pkl")  # original order of features
 
-st.title("📊 Credit Risk Assessment Tool")
+# -------------------- AI CHATBOT INTRO --------------------
+st.title("🤖 AI Loan Assistant")
 
-# Sidebar options
-st.sidebar.header("Applicant Data Input")
+if "chat_stage" not in st.session_state:
+    st.session_state.chat_stage = 0
+    st.session_state.chat_data = {}
 
-# Choose input mode
-input_mode = st.sidebar.radio("Choose input mode:", ["Manual Entry", "Upload CSV"])
+# Chatbot flow questions
+questions = [
+    ("Full Name", "text", "Please enter the applicant's full name"),
+    ("National ID / Passport Number", "text", "Enter ID or passport number"),
+    ("Age (Years)", "number", "Enter applicant's age"),
+    ("Residential Address", "text", "Enter current residential address"),
+    ("Contact Phone", "text", "Enter phone number"),
+    ("Contact Email", "text", "Enter email address"),
+    ("Monthly Income (USD)", "number", "Enter monthly income"),
+    ("Employer Name", "text", "Enter employer name"),
+    ("Employer Contact", "text", "Enter employer contact details"),
+    ("Employment Type", "select", ["Permanent", "Contract", "Self-Employed"]),
+    ("Employment Duration (years)", "number", "How long has the applicant worked at current employer?"),
+    ("Existing Debts / Other Obligations (USD)", "number", "Enter total outstanding debts"),
+    ("Previous Loan Repayments (USD)", "number", "Enter total repayments from past loans"),
+    ("Requested Loan Amount (USD)", "number", "Enter requested loan amount")
+]
 
-applicant_data = None
-if input_mode == "Manual Entry":
-    # Create sidebar inputs for all features EXCEPT credit_score
-    income = st.sidebar.number_input(NAME_MAP["income"], min_value=0.0, step=100.0)
-    age = st.sidebar.number_input(NAME_MAP["age"], min_value=18, max_value=100, step=1)
-    loan_amnt = st.sidebar.number_input(NAME_MAP["loan_amnt"], min_value=0.0, step=100.0)
-    last_pymnt_amnt = st.sidebar.number_input(NAME_MAP["last_pymnt_amnt"], min_value=0.0, step=50.0)
-    total_pymnt = st.sidebar.number_input(NAME_MAP["total_pymnt"], min_value=0.0, step=100.0)
-    recoveries = st.sidebar.number_input(NAME_MAP["recoveries"], min_value=0.0, step=10.0)
-    funded_amnt = st.sidebar.number_input(NAME_MAP["funded_amnt"], min_value=0.0, step=100.0)
-    total_rec_prncp = st.sidebar.number_input(NAME_MAP["total_rec_prncp"], min_value=0.0, step=100.0)
-    total_pymnt_inv = st.sidebar.number_input(NAME_MAP["total_pymnt_inv"], min_value=0.0, step=100.0)
-    funded_amnt_inv = st.sidebar.number_input(NAME_MAP["funded_amnt_inv"], min_value=0.0, step=100.0)
+if st.session_state.chat_stage < len(questions):
+    q_label, q_type, q_prompt = questions[st.session_state.chat_stage]
+    st.write(f"**AI Assistant:** {q_prompt}")
 
+    if q_type == "text":
+        answer = st.text_input("Your answer:", key=f"q{st.session_state.chat_stage}")
+    elif q_type == "number":
+        answer = st.number_input("Your answer:", min_value=0.0, step=1.0, key=f"q{st.session_state.chat_stage}")
+    elif q_type == "select":
+        answer = st.selectbox("Select option:", q_prompt, key=f"q{st.session_state.chat_stage}")
+
+    if st.button("Next"):
+        if answer is not None and answer != "":
+            st.session_state.chat_data[q_label] = answer
+            st.session_state.chat_stage += 1
+        else:
+            st.warning("Please provide an answer before continuing.")
+else:
+    st.success("✅ All initial details collected!")
+    st.write("Here’s a summary of the applicant’s information:")
+    st.table(pd.DataFrame([st.session_state.chat_data]))
+
+    if st.button("Continue to Loan Application Form"):
+        st.session_state.chat_stage = len(questions) + 1
+
+# -------------------- SHOW MAIN FORM AFTER CHATBOT --------------------
+if st.session_state.chat_stage > len(questions):
+    st.header("📋 Applicant Data Input Form")
+
+    # Use the chatbot-collected data as defaults in the form
     applicant_data = pd.DataFrame({
-        "income": [income],
-        "age": [age],
-        "loan_amnt": [loan_amnt],
-        "last_pymnt_amnt": [last_pymnt_amnt],
-        "total_pymnt": [total_pymnt],
-        "recoveries": [recoveries],
-        "funded_amnt": [funded_amnt],
-        "total_rec_prncp": [total_rec_prncp],
-        "total_pymnt_inv": [total_pymnt_inv],
-        "funded_amnt_inv": [funded_amnt_inv]
+        "income": [st.session_state.chat_data.get("Monthly Income (USD)", 0)],
+        "age": [st.session_state.chat_data.get("Age (Years)", 18)],
+        "loan_amnt": [st.session_state.chat_data.get("Requested Loan Amount (USD)", 0)],
+        "last_pymnt_amnt": [0],
+        "total_pymnt": [0],
+        "recoveries": [0],
+        "funded_amnt": [0],
+        "total_rec_prncp": [0],
+        "total_pymnt_inv": [0],
+        "funded_amnt_inv": [0]
     })
 
-elif input_mode == "Upload CSV":
-    uploaded_file = st.sidebar.file_uploader("Upload Applicant CSV", type=["csv"])
-    if uploaded_file:
-        applicant_data = pd.read_csv(uploaded_file)
+    # -------------------- PREDICT BUTTON --------------------
+    if st.button("Predict"):
+        if applicant_data is not None:
+            # Align applicant data with training features
+            applicant_aligned = pd.DataFrame(columns=feature_names)
+            applicant_aligned.loc[0] = 0
+            for col in applicant_data.columns:
+                if col in applicant_aligned.columns:
+                    applicant_aligned.loc[0, col] = applicant_data[col].values[0]
 
-# -------------------- PREDICT BUTTON --------------------
-if st.sidebar.button("Predict"):
-    if applicant_data is not None:
-        # Align applicant data with training features
-        applicant_aligned = pd.DataFrame(columns=feature_names)
-        applicant_aligned.loc[0] = 0
-        for col in applicant_data.columns:
-            if col in applicant_aligned.columns:
-                applicant_aligned.loc[0, col] = applicant_data[col].values[0]
+            # Scale aligned data
+            scaled = scaler.transform(applicant_aligned)
 
-        # Scale aligned data
-        scaled = scaler.transform(applicant_aligned)
+            # Prediction
+            prob = mlp_model.predict_proba(scaled)[:, 1]
+            pred = mlp_model.predict(scaled)
 
-        # Prediction
-        prob = mlp_model.predict_proba(scaled)[:, 1]
-        pred = mlp_model.predict(scaled)
+            # Results
+            results = []
+            for i in range(len(prob)):
+                credit_score = compute_credit_score(prob[i])
+                if prob[i] > 0.7:
+                    risk = "High Risk"
+                elif prob[i] > 0.4:
+                    risk = "Medium Risk"
+                else:
+                    risk = "Low Risk"
 
-        # Results
-        results = []
-        for i in range(len(prob)):
-            credit_score = compute_credit_score(prob[i])
-            if prob[i] > 0.7:
-                risk = "High Risk"
-            elif prob[i] > 0.4:
-                risk = "Medium Risk"
-            else:
-                risk = "Low Risk"
+                # Safely map applicant features to human-readable labels
+                applicant_readable = {}
+                for k in FEATURES:
+                    if k in applicant_aligned.columns:
+                        applicant_readable[NAME_MAP.get(k, k)] = applicant_aligned.loc[0, k]
 
-            # Safely map applicant features to human-readable labels
-            applicant_readable = {}
-            for k in FEATURES:
-                if k in applicant_aligned.columns:
-                    applicant_readable[NAME_MAP.get(k, k)] = applicant_aligned.loc[0, k]
+                results.append({
+                    "Prediction": "Default" if pred[i] == 1 else "Non-Default",
+                    "Probability of Default": prob[i],
+                    "Risk Category": risk,
+                    "Calculated Credit Score": credit_score,
+                    **applicant_readable
+                })
 
-            results.append({
-                "Prediction": "Default" if pred[i] == 1 else "Non-Default",
-                "Probability of Default": prob[i],
-                "Risk Category": risk,
-                "Calculated Credit Score": credit_score,
-                **applicant_readable
-            })
+            results_df = pd.DataFrame(results)
+            st.subheader("Prediction Results")
+            st.write(results_df)
 
-        results_df = pd.DataFrame(results)
-        st.subheader("Prediction Results")
-        st.write(results_df)
+            # ✅ SHAP Explanation
+            st.subheader("SHAP Explanation")
+            explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
+            shap_values = explainer(scaled)
+            fig, ax = plt.subplots()
+            shap.summary_plot(
+                shap_values, applicant_aligned,
+                feature_names=[NAME_MAP.get(f, f) for f in feature_names],
+                plot_type="bar", show=False
+            )
+            st.pyplot(fig)
 
-        # ✅ SHAP Explanation
-        st.subheader("SHAP Explanation")
-        explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
-        shap_values = explainer(scaled)
-        fig, ax = plt.subplots()
-        shap.summary_plot(
-            shap_values, applicant_aligned,
-            feature_names=[NAME_MAP.get(f, f) for f in feature_names],
-            plot_type="bar", show=False
-        )
-        st.pyplot(fig)
+            # ✅ LIME Explanation
+            st.subheader("LIME Explanation")
+            lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=scaler.transform(df.drop("default_ind", axis=1).values),
+                feature_names=[NAME_MAP.get(f, f) for f in df.drop("default_ind", axis=1).columns.tolist()],
+                class_names=["Non-Default", "Default"],
+                mode="classification"
+            )
+            explanation = lime_explainer.explain_instance(
+                data_row=scaled[0],
+                predict_fn=mlp_model.predict_proba,
+                num_features=4
+            )
+            fig = explanation.as_pyplot_figure(label=1)
+            st.pyplot(fig)
 
-        # ✅ LIME Explanation
-        st.subheader("LIME Explanation")
-        lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-            training_data=scaler.transform(df.drop("default_ind", axis=1).values),
-            feature_names=[NAME_MAP.get(f, f) for f in df.drop("default_ind", axis=1).columns.tolist()],
-            class_names=["Non-Default", "Default"],
-            mode="classification"
-        )
-        explanation = lime_explainer.explain_instance(
-            data_row=scaled[0],
-            predict_fn=mlp_model.predict_proba,
-            num_features=4
-        )
-        fig = explanation.as_pyplot_figure(label=1)
-        st.pyplot(fig)
+            # ✅ AI Assistant Advice
+            st.subheader("🤖 AI Assistant Advice")
+            assistant_text = ai_assistant(
+                pred, prob, shap_values, explanation,
+                applicant_aligned, results_df["Calculated Credit Score"].iloc[0]
+            )
+            st.write(assistant_text)
 
-        # ✅ AI Assistant Advice
-        st.subheader("🤖 AI Assistant Advice")
-        assistant_text = ai_assistant(
-            pred, prob, shap_values, explanation,
-            applicant_aligned, results_df["Calculated Credit Score"].iloc[0]
-        )
-        st.write(assistant_text)
-
-    else:
-        st.warning("Please provide applicant data (manual entry or CSV).")
+        else:
+            st.warning("Please provide applicant data (manual entry or CSV).")
 
 # -------------------- RETRAIN OPTION --------------------
 if st.sidebar.button("Retrain Model"):
@@ -223,6 +251,8 @@ if st.sidebar.button("Retrain Model"):
     joblib.dump(scaler, "scaler.pkl")
 
     st.success("Model retrained successfully with updated dataset!")
+
+
 
 
 
