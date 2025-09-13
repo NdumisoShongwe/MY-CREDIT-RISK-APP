@@ -148,8 +148,13 @@ if st.sidebar.button("Predict"):
                 risk = "Medium Risk"
             else:
                 risk = "Low Risk"
-            # Replace technical names with human-readable in output
-            applicant_readable = {NAME_MAP.get(k, k): applicant_aligned.iloc[i][k] for k in FEATURES}
+
+            # Safely map applicant features to human-readable labels
+            applicant_readable = {}
+            for k in FEATURES:
+                if k in applicant_aligned.columns:
+                    applicant_readable[NAME_MAP.get(k, k)] = applicant_aligned.loc[0, k]
+
             results.append({
                 "Prediction": "Default" if pred[i] == 1 else "Non-Default",
                 "Probability of Default": prob[i],
@@ -192,7 +197,10 @@ if st.sidebar.button("Predict"):
 
         # ✅ AI Assistant Advice
         st.subheader("🤖 AI Assistant Advice")
-        assistant_text = ai_assistant(pred, prob, shap_values, explanation, applicant_aligned, results_df["Calculated Credit Score"].iloc[0])
+        assistant_text = ai_assistant(
+            pred, prob, shap_values, explanation,
+            applicant_aligned, results_df["Calculated Credit Score"].iloc[0]
+        )
         st.write(assistant_text)
 
     else:
@@ -215,6 +223,8 @@ if st.sidebar.button("Retrain Model"):
     joblib.dump(scaler, "scaler.pkl")
 
     st.success("Model retrained successfully with updated dataset!")
+
+
 
 
 
