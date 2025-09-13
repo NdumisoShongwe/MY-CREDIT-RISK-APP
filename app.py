@@ -6,6 +6,14 @@ import shap
 import lime.lime_tabular
 import matplotlib.pyplot as plt
 
+# -------------------- HELPER FUNCTION --------------------
+def safe_numeric(val, default=0.0):
+    """Safely convert any value to float, fallback to default."""
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 # -------------------- FEATURE DEFINITIONS --------------------
 FEATURES = [
     "income", "age", "loan_amnt", "last_pymnt_amnt",
@@ -131,16 +139,15 @@ else:
 
     st.header("📋 Applicant Data Input Form (Prefilled from Chatbot)")
 
-    # Explicit float conversion to avoid StreamlitMixedNumericTypesError
-    income_val = float(st.session_state.chat_data.get("Monthly Income (USD)", 0))
-    age_val = float(st.session_state.chat_data.get("Age (Years)", 18))
-    loan_amnt_val = float(st.session_state.chat_data.get("Requested Loan Amount (USD)", 0))
+    # -------------------- PREFILL FORM WITH SAFE NUMERIC --------------------
+    income_val = safe_numeric(st.session_state.chat_data.get("Monthly Income (USD)"), 0.0)
+    age_val = safe_numeric(st.session_state.chat_data.get("Age (Years)"), 18)
+    loan_amnt_val = safe_numeric(st.session_state.chat_data.get("Requested Loan Amount (USD)"), 0.0)
 
     income = st.number_input(NAME_MAP["income"], value=income_val, step=100.0)
     age = st.number_input(NAME_MAP["age"], value=age_val, step=1)
     loan_amnt = st.number_input(NAME_MAP["loan_amnt"], value=loan_amnt_val, step=100.0)
 
-    # Remaining fields default to 0
     last_pymnt_amnt = st.number_input(NAME_MAP["last_pymnt_amnt"], value=0.0, step=50.0)
     total_pymnt = st.number_input(NAME_MAP["total_pymnt"], value=0.0, step=100.0)
     recoveries = st.number_input(NAME_MAP["recoveries"], value=0.0, step=10.0)
@@ -162,6 +169,7 @@ else:
         "funded_amnt_inv": [funded_amnt_inv]
     })
 
+    # -------------------- PREDICT BUTTON --------------------
     if st.button("Predict"):
         applicant_aligned = pd.DataFrame(columns=feature_names)
         applicant_aligned.loc[0] = 0
@@ -226,6 +234,8 @@ if st.sidebar.button("Retrain Model"):
     joblib.dump(mlp_model, "mlp_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
     st.success("Model retrained successfully!")
+
+
 
 
 
