@@ -15,6 +15,7 @@ def safe_float(val, default=0.0):
         return default
 
 def compute_credit_score(prob_default):
+    """Convert probability of default into a 300–850 credit score"""
     return int(max(300, min(850, 850 - prob_default*550)))
 
 def ai_assistant(pred, prob, shap_values, lime_exp, applicant_aligned, credit_score):
@@ -71,16 +72,17 @@ NAME_MAP = {
 mlp_model = joblib.load("mlp_model.pkl")
 scaler = joblib.load("scaler.pkl")
 df = pd.read_csv("credit_risk_dataset.csv")
-feature_names = joblib.load("features.pkl")
+feature_names = joblib.load("features.pkl")  # original order of features
 
+st.set_page_config(page_title="AI Loan Assistant", layout="wide")
 st.title("🤖 AI Loan Assistant & Credit Risk Tool")
 
-# -------------------- CHATBOT --------------------
+# -------------------- SESSION STATE --------------------
 if "chat_stage" not in st.session_state:
     st.session_state.chat_stage = 0
     st.session_state.chat_data = {}
 
-# Chatbot questions (same as before)
+# -------------------- CHATBOT QUESTIONS --------------------
 questions = [
     ("Full Name", "text", "Please enter the applicant's full name"),
     ("National ID / Passport Number", "text", "Enter ID or passport number"),
@@ -98,7 +100,7 @@ questions = [
     ("Requested Loan Amount (USD)", "number", "Enter requested loan amount")
 ]
 
-# Chatbot responses sidebar
+# Chatbot sidebar responses
 st.sidebar.header("💬 Chatbot Responses")
 for k,v in st.session_state.chat_data.items():
     st.sidebar.write(f"**{k}:** {v}")
@@ -116,23 +118,24 @@ if st.session_state.chat_stage < len(questions):
         answer = st.selectbox("Select option:", q_prompt, key=f"q{st.session_state.chat_stage}")
 
     if st.button("Next"):
-        if answer is not None and answer!="":
+        if answer is not None and answer != "":
             st.session_state.chat_data[q_label] = answer
             st.session_state.chat_stage += 1
         else:
-            st.warning("Please provide an answer.")
+            st.warning("Please provide an answer before continuing.")
 
-# -------------------- APPLICANT DATA INPUT FORM --------------------
+# -------------------- APPLICANT DATA INPUT --------------------
 else:
     st.success("✅ Chatbot completed!")
     st.write("Summary of applicant info:")
     st.table(pd.DataFrame([st.session_state.chat_data]))
 
     st.header("📋 Applicant Data Input Form")
+
     def prefill(key, default=0.0):
         return safe_float(st.session_state.chat_data.get(key), default)
 
-    # Numeric inputs for features
+    # Applicant numeric inputs
     income = st.number_input(NAME_MAP["income"], value=prefill("Monthly Income (USD)",0.0), step=100.0,
                              help="Enter the applicant's monthly income in USD")
     age = st.number_input(NAME_MAP["age"], value=prefill("Age (Years)",18), step=1.0,
@@ -156,8 +159,9 @@ else:
 
     # -------------------- PREDICTION --------------------
     if st.button("Predict"):
+        # Align with training features
         applicant_aligned = pd.DataFrame(columns=feature_names)
-        applicant_aligned.loc[0]=0
+        applicant_aligned.loc[0] = 0
         for col in applicant_data.columns:
             if col in applicant_aligned.columns:
                 applicant_aligned.loc[0,col] = applicant_data[col].values[0]
@@ -184,7 +188,7 @@ else:
         st.subheader("SHAP Interactive Dashboard")
         explainer = shap.Explainer(mlp_model.predict, scaler.transform(df.drop("default_ind", axis=1)))
         shap_values = explainer(scaled)
-        st_shap = st.pyplot(shap.force_plot(explainer.expected_value[1], shap_values.values[0], applicant_aligned, matplotlib=True))
+        st.pyplot(shap.plots.force(shap_values[0], matplotlib=True))
 
         # -------------------- LIME INTERACTIVE --------------------
         st.subheader("LIME Explanation")
@@ -197,9 +201,11 @@ else:
         explanation = lime_explainer.explain_instance(scaled[0], mlp_model.predict_proba, num_features=5)
         st.pyplot(explanation.as_pyplot_figure(label=1))
 
-        # AI Assistant Advice
+        # -------------------- AI ASSISTANT --------------------
         st.subheader("🤖 AI Assistant Advice")
         st.write(ai_assistant(pred, prob, shap_values, explanation, applicant_aligned, credit_score_val))
+
+
 
 
 
